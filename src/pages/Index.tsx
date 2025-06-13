@@ -18,6 +18,15 @@ const Index = () => {
       {/* Main Content */}
       <div className="flex-1 flex flex-col justify-center items-center px-6 pb-20">
         <div className="text-center max-w-md">
+          {/* Logo */}
+          <div className="mb-8">
+            <img 
+              src="/lovable-uploads/c5926c23-0546-4aab-b5f8-5d4ebd1e0420.png" 
+              alt="GRYT Logo" 
+              className="w-32 h-32 mx-auto"
+            />
+          </div>
+          
           {/* Main Headline */}
           <h1 className="text-3xl md:text-4xl font-black uppercase tracking-tight mb-6 leading-tight">
             BECOME THE BEST VERSION OF YOU
