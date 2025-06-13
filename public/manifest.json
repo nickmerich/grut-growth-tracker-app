@@ -1,0 +1,20 @@
+
+{
+  "name": "GRYT - Become The Best Version Of You",
+  "short_name": "GRYT",
+  "description": "Pick one goal. Sign a contract. Get daily coaching. Earn real rewards.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "orientation": "portrait-primary",
+  "categories": ["productivity", "lifestyle", "health"],
+  "icons": [
+    {
+      "src": "/lovable-uploads/13dba3cc-4553-43a7-bab1-d98336aa47ec.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
