@@ -1,20 +1,20 @@
 
 import { cn } from "@/lib/utils";
-import { ButtonHTMLAttributes, ReactNode } from "react";
+import { ButtonHTMLAttributes, ReactNode, forwardRef } from "react";
 
-interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   children: ReactNode;
   variant?: "primary" | "secondary" | "ghost";
   size?: "default" | "large";
 }
 
-export const Button = ({ 
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(({ 
   children, 
   variant = "primary", 
   size = "default",
   className,
   ...props 
-}: ButtonProps) => {
+}, ref) => {
   const baseStyles = "font-black uppercase tracking-wide transition-all duration-150 border-3 border-black focus:outline-none focus:ring-0";
   
   const variants = {
@@ -30,6 +30,7 @@ export const Button = ({
 
   return (
     <button
+      ref={ref}
       className={cn(
         baseStyles,
         variants[variant],
@@ -41,4 +42,6 @@ export const Button = ({
       {children}
     </button>
   );
-};
+});
+
+Button.displayName = "Button";
