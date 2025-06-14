@@ -12,6 +12,7 @@ import Dashboard from "./pages/Dashboard";
 import Progress from "./pages/Progress";
 import Rewards from "./pages/Rewards";
 import Profile from "./pages/Profile";
+import DailyCheckin from "./pages/DailyCheckin";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -31,6 +32,7 @@ const App = () => (
           <Route path="/progress" element={<Progress />} />
           <Route path="/rewards" element={<Rewards />} />
           <Route path="/profile" element={<Profile />} />
+          <Route path="/daily-checkin" element={<DailyCheckin />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

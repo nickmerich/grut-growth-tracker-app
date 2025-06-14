@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -14,6 +13,7 @@ const Dashboard = () => {
   const [user, setUser] = useState<any>(null);
   const [activeGoal, setActiveGoal] = useState<any>(null);
   const [todayProgress, setTodayProgress] = useState<any>(null);
+  const [todayCheckin, setTodayCheckin] = useState<any>(null);
   const [streak, setStreak] = useState(0);
   const [loading, setLoading] = useState(true);
 
@@ -55,6 +55,16 @@ const Dashboard = () => {
           .single();
 
         setTodayProgress(progress);
+
+        // Fetch today's check-in
+        const { data: checkin } = await supabase
+          .from('daily_coaching')
+          .select('*')
+          .eq('goal_id', goals[0].id)
+          .eq('date', today)
+          .single();
+
+        setTodayCheckin(checkin);
 
         // Calculate streak
         await calculateStreak(goals[0].id);
@@ -223,6 +233,34 @@ const Dashboard = () => {
             Day {streak + 1} of {activeGoal.total_days}
           </p>
         </div>
+
+        {/* Daily Check-in Card */}
+        <Card className="mb-6">
+          <h3 className="text-lg font-black uppercase tracking-tight mb-3">
+            Daily Check-In
+          </h3>
+          
+          {!todayCheckin ? (
+            <div>
+              <p className="text-gray-600 mb-4">
+                Take 2 minutes to reflect on your progress and plan ahead.
+              </p>
+              <Button 
+                onClick={() => navigate('/daily-checkin')}
+                className="w-full"
+              >
+                Start Daily Check-In
+              </Button>
+            </div>
+          ) : (
+            <div className="text-center py-3">
+              <span className="text-green-500 font-bold">✓ Today's Check-In Complete!</span>
+              <p className="text-sm text-gray-600 mt-2">
+                Mood: {todayCheckin.mood_score}/10 | {todayCheckin.completed ? 'Goal Completed' : 'Goal Pending'}
+              </p>
+            </div>
+          )}
+        </Card>
 
         {/* Active Goal Card */}
         <Card className="mb-6">
