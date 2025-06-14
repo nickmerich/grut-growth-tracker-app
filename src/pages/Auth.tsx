@@ -20,18 +20,24 @@ const Auth = () => {
   const [session, setSession] = useState<Session | null>(null);
 
   useEffect(() => {
-    // Set up auth state listener
+    // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
+        console.log('Auth state changed:', event, session?.user?.id);
         setSession(session);
         setUser(session?.user ?? null);
-        if (session?.user) {
+        
+        if (session?.user && event !== 'SIGNED_OUT') {
+          // Defer profile creation/check to avoid blocking auth flow
+          setTimeout(() => {
+            ensureUserProfile(session.user);
+          }, 0);
           navigate('/dashboard');
         }
       }
     );
 
-    // Check for existing session
+    // THEN check for existing session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
@@ -43,46 +49,141 @@ const Auth = () => {
     return () => subscription.unsubscribe();
   }, [navigate]);
 
+  const ensureUserProfile = async (user: User) => {
+    try {
+      // Check if profile exists
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      if (!profile) {
+        // Create profile if it doesn't exist
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .insert([{
+            id: user.id,
+            full_name: user.user_metadata?.full_name || ''
+          }]);
+
+        if (profileError) {
+          console.error('Error creating profile:', profileError);
+        }
+      }
+
+      // Check if growth_points exists
+      const { data: points } = await supabase
+        .from('growth_points')
+        .select('id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (!points) {
+        // Create growth_points if it doesn't exist
+        const { error: pointsError } = await supabase
+          .from('growth_points')
+          .insert([{
+            user_id: user.id,
+            total_points: 0,
+            spent_points: 0
+          }]);
+
+        if (pointsError) {
+          console.error('Error creating growth points:', pointsError);
+        }
+      }
+    } catch (error) {
+      console.error('Error ensuring user profile:', error);
+    }
+  };
+
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!email || !password) {
+      toast({
+        title: "Missing Information",
+        description: "Please fill in all required fields.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (password.length < 6) {
+      toast({
+        title: "Password Too Short",
+        description: "Password must be at least 6 characters long.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setLoading(true);
 
     try {
       if (isLogin) {
         const { error } = await supabase.auth.signInWithPassword({
-          email,
+          email: email.trim(),
           password,
         });
         
-        if (error) throw error;
+        if (error) {
+          if (error.message.includes('Invalid login credentials')) {
+            throw new Error('Invalid email or password. Please check your credentials and try again.');
+          }
+          if (error.message.includes('Email not confirmed')) {
+            throw new Error('Please check your email and click the confirmation link before signing in.');
+          }
+          throw error;
+        }
         
         toast({
           title: "Welcome back!",
           description: "Successfully signed in.",
         });
       } else {
+        if (!fullName.trim()) {
+          toast({
+            title: "Missing Information",
+            description: "Please enter your full name.",
+            variant: "destructive",
+          });
+          return;
+        }
+
         const { error } = await supabase.auth.signUp({
-          email,
+          email: email.trim(),
           password,
           options: {
             emailRedirectTo: `${window.location.origin}/dashboard`,
             data: {
-              full_name: fullName,
+              full_name: fullName.trim(),
             }
           }
         });
         
-        if (error) throw error;
+        if (error) {
+          if (error.message.includes('User already registered')) {
+            throw new Error('An account with this email already exists. Please sign in instead.');
+          }
+          throw error;
+        }
         
         toast({
           title: "Account created!",
-          description: "Please check your email to verify your account.",
+          description: "Please check your email to verify your account before signing in.",
         });
+        
+        // Switch to login mode after successful signup
+        setIsLogin(true);
+        setPassword("");
       }
     } catch (error: any) {
+      console.error('Authentication error:', error);
       toast({
         title: "Authentication Error",
-        description: error.message,
+        description: error.message || "An unexpected error occurred. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -132,10 +233,11 @@ const Auth = () => {
             <Input
               label="Password"
               type="password"
-              placeholder="Enter your password"
+              placeholder="Enter your password (min 6 characters)"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
+              minLength={6}
             />
             
             <Button
@@ -149,8 +251,13 @@ const Auth = () => {
           
           <div className="mt-6 text-center">
             <button
-              onClick={() => setIsLogin(!isLogin)}
+              onClick={() => {
+                setIsLogin(!isLogin);
+                setPassword("");
+                setFullName("");
+              }}
               className="text-sm text-green-500 hover:underline"
+              disabled={loading}
             >
               {isLogin ? "Need an account? Sign up" : "Already have an account? Sign in"}
             </button>

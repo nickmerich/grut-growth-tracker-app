@@ -24,14 +24,16 @@ const GoalSetup = () => {
   const isCustom = location.state?.isCustom;
 
   useEffect(() => {
-    // Check authentication
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) {
-        navigate('/auth');
-        return;
-      }
-      setUser(user);
-    });
+    checkAuth();
+  }, []);
+
+  const checkAuth = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      navigate('/auth');
+      return;
+    }
+    setUser(user);
 
     // Pre-fill form if using template
     if (goalTemplate) {
@@ -39,11 +41,20 @@ const GoalSetup = () => {
       setGoalDescription(goalTemplate.description);
       setDuration(goalTemplate.suggested_duration_days);
     }
-  }, [goalTemplate, navigate]);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
+
+    if (!goalTitle.trim() || !goalDescription.trim() || !whyItMatters.trim() || !signature.trim()) {
+      toast({
+        title: "Missing Information",
+        description: "Please fill in all required fields.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     setLoading(true);
 
@@ -57,11 +68,11 @@ const GoalSetup = () => {
         .insert([
           {
             user_id: user.id,
-            title: goalTitle,
-            description: goalDescription,
+            title: goalTitle.trim(),
+            description: goalDescription.trim(),
             total_days: duration,
-            why_it_matters: whyItMatters,
-            signature: signature,
+            why_it_matters: whyItMatters.trim(),
+            signature: signature.trim(),
             category: goalTemplate?.category || 'personal',
             deadline: deadline.toISOString().split('T')[0],
             is_active: true,
@@ -71,7 +82,10 @@ const GoalSetup = () => {
           }
         ]);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Goal creation error:', error);
+        throw error;
+      }
 
       toast({
         title: "Goal Created!",
@@ -80,9 +94,10 @@ const GoalSetup = () => {
 
       navigate('/dashboard');
     } catch (error: any) {
+      console.error('Error creating goal:', error);
       toast({
         title: "Error",
-        description: error.message,
+        description: error.message || "Failed to create goal. Please try again.",
         variant: "destructive",
       });
     } finally {
