@@ -48,6 +48,10 @@ const GoalSetup = () => {
     setLoading(true);
 
     try {
+      // Calculate deadline
+      const deadline = new Date();
+      deadline.setDate(deadline.getDate() + duration);
+
       const { error } = await supabase
         .from('goals')
         .insert([
@@ -55,12 +59,15 @@ const GoalSetup = () => {
             user_id: user.id,
             title: goalTitle,
             description: goalDescription,
-            duration_days: duration,
+            total_days: duration,
             why_it_matters: whyItMatters,
             signature: signature,
-            template_id: goalTemplate?.id || null,
-            status: 'active',
-            start_date: new Date().toISOString().split('T')[0],
+            category: goalTemplate?.category || 'personal',
+            deadline: deadline.toISOString().split('T')[0],
+            is_active: true,
+            progress: 0,
+            daily_streak: 0,
+            completed_days: 0,
           }
         ]);
 

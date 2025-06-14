@@ -45,7 +45,7 @@ const Rewards = () => {
       const { data: rewardsData } = await supabase
         .from('rewards')
         .select('*')
-        .order('points_required', { ascending: true });
+        .order('points_cost', { ascending: true });
 
       setRewards(rewardsData || []);
     } catch (error: any) {
@@ -58,21 +58,25 @@ const Rewards = () => {
   const redeemReward = async (reward: any) => {
     if (!user || !userPoints) return;
 
-    if (userPoints.current_points < reward.points_required) {
+    const currentPoints = (userPoints.total_points || 0) - (userPoints.spent_points || 0);
+
+    if (currentPoints < reward.points_cost) {
       toast({
         title: "Insufficient Points",
-        description: `You need ${reward.points_required - userPoints.current_points} more points to redeem this reward.`,
+        description: `You need ${reward.points_cost - currentPoints} more points to redeem this reward.`,
         variant: "destructive",
       });
       return;
     }
 
     try {
-      // Deduct points
+      // Update spent points
+      const newSpentPoints = (userPoints.spent_points || 0) + reward.points_cost;
+      
       const { error: pointsError } = await supabase
         .from('growth_points')
         .update({ 
-          current_points: userPoints.current_points - reward.points_required 
+          spent_points: newSpentPoints
         })
         .eq('user_id', user.id);
 
@@ -80,12 +84,12 @@ const Rewards = () => {
 
       // Log redemption
       const { error: redemptionError } = await supabase
-        .from('reward_redemptions')
+        .from('redemptions')
         .insert([
           {
             user_id: user.id,
             reward_id: reward.id,
-            points_spent: reward.points_required
+            points_spent: reward.points_cost
           }
         ]);
 
@@ -138,6 +142,8 @@ const Rewards = () => {
     );
   }
 
+  const currentPoints = userPoints ? (userPoints.total_points || 0) - (userPoints.spent_points || 0) : 0;
+
   return (
     <div className="min-h-screen bg-black text-white flex flex-col">
       <div className="flex-1 px-6 pt-8 pb-24">
@@ -157,10 +163,10 @@ const Rewards = () => {
               Your Points
             </h2>
             <div className="text-4xl font-black text-green-500 mb-2">
-              {userPoints?.current_points || 0}
+              {currentPoints}
             </div>
             <div className="text-sm text-gray-600">
-              Total Earned: {userPoints?.total_earned || 0}
+              Total Earned: {userPoints?.total_points || 0}
             </div>
           </div>
         </Card>
@@ -181,7 +187,7 @@ const Rewards = () => {
             </Card>
           ) : (
             rewards.map((reward) => {
-              const canAfford = userPoints && userPoints.current_points >= reward.points_required;
+              const canAfford = currentPoints >= reward.points_cost;
               
               return (
                 <Card key={reward.id}>
@@ -195,7 +201,7 @@ const Rewards = () => {
                       </p>
                       <div className="flex items-center gap-2">
                         <span className="text-green-500 font-bold">
-                          {reward.points_required} Points
+                          {reward.points_cost} Points
                         </span>
                         {reward.category && (
                           <span className="text-xs bg-gray-200 text-black px-2 py-1 rounded font-bold">

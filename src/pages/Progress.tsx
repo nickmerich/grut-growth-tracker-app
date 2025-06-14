@@ -37,7 +37,7 @@ const Progress = () => {
         .from('goals')
         .select('*')
         .eq('user_id', userId)
-        .eq('status', 'active')
+        .eq('is_active', true)
         .order('created_at', { ascending: false })
         .limit(1);
 
@@ -49,7 +49,7 @@ const Progress = () => {
           .from('progress_logs')
           .select('*')
           .eq('goal_id', goals[0].id)
-          .order('log_date', { ascending: false });
+          .order('date', { ascending: false });
 
         setProgressLogs(logs || []);
       }
@@ -116,7 +116,7 @@ const Progress = () => {
   }
 
   const completedDays = progressLogs.filter(log => log.completed).length;
-  const progressPercentage = Math.round((completedDays / activeGoal.duration_days) * 100);
+  const progressPercentage = Math.round((completedDays / activeGoal.total_days) * 100);
 
   return (
     <div className="min-h-screen bg-black text-white flex flex-col">
@@ -146,7 +146,7 @@ const Progress = () => {
               <div className="text-xs font-bold uppercase">Progress</div>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-black text-green-500">{activeGoal.duration_days - completedDays}</div>
+              <div className="text-2xl font-black text-green-500">{activeGoal.total_days - completedDays}</div>
               <div className="text-xs font-bold uppercase">Remaining</div>
             </div>
           </div>
@@ -180,7 +180,7 @@ const Progress = () => {
                 <div className="flex justify-between items-center">
                   <div>
                     <div className="font-bold">
-                      {new Date(log.log_date).toLocaleDateString()}
+                      {new Date(log.date).toLocaleDateString()}
                     </div>
                     {log.notes && (
                       <p className="text-sm text-gray-600 mt-1">
@@ -193,11 +193,6 @@ const Progress = () => {
                       <span className="text-green-500 font-bold">✓ Completed</span>
                     ) : (
                       <span className="text-gray-500">Pending</span>
-                    )}
-                    {log.mood_score && (
-                      <div className="text-sm text-gray-600">
-                        Mood: {log.mood_score}/10
-                      </div>
                     )}
                   </div>
                 </div>

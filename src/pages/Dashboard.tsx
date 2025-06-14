@@ -38,7 +38,7 @@ const Dashboard = () => {
         .from('goals')
         .select('*')
         .eq('user_id', userId)
-        .eq('status', 'active')
+        .eq('is_active', true)
         .order('created_at', { ascending: false })
         .limit(1);
 
@@ -51,7 +51,7 @@ const Dashboard = () => {
           .from('progress_logs')
           .select('*')
           .eq('goal_id', goals[0].id)
-          .eq('log_date', today)
+          .eq('date', today)
           .single();
 
         setTodayProgress(progress);
@@ -70,10 +70,10 @@ const Dashboard = () => {
     try {
       const { data: logs } = await supabase
         .from('progress_logs')
-        .select('log_date, completed')
+        .select('date, completed')
         .eq('goal_id', goalId)
         .eq('completed', true)
-        .order('log_date', { ascending: false });
+        .order('date', { ascending: false });
 
       if (!logs || logs.length === 0) {
         setStreak(0);
@@ -84,7 +84,7 @@ const Dashboard = () => {
       const today = new Date();
       
       for (let i = 0; i < logs.length; i++) {
-        const logDate = new Date(logs[i].log_date);
+        const logDate = new Date(logs[i].date);
         const daysDiff = Math.floor((today.getTime() - logDate.getTime()) / (1000 * 60 * 60 * 24));
         
         if (daysDiff === currentStreak) {
@@ -112,7 +112,7 @@ const Dashboard = () => {
           {
             goal_id: activeGoal.id,
             user_id: user.id,
-            log_date: today,
+            date: today,
             completed: true,
             notes: "Completed daily goal"
           }
@@ -120,14 +120,23 @@ const Dashboard = () => {
 
       if (error) throw error;
 
-      // Award points
-      await supabase
+      // Award points - get current points first
+      const { data: currentPoints } = await supabase
         .from('growth_points')
-        .update({ 
-          current_points: supabase.sql`current_points + 10`,
-          total_earned: supabase.sql`total_earned + 10`
-        })
-        .eq('user_id', user.id);
+        .select('total_points, spent_points')
+        .eq('user_id', user.id)
+        .single();
+
+      if (currentPoints) {
+        const newTotal = (currentPoints.total_points || 0) + 10;
+        await supabase
+          .from('growth_points')
+          .update({ 
+            total_points: newTotal,
+            earned_points: (currentPoints.total_points || 0) + 10
+          })
+          .eq('user_id', user.id);
+      }
 
       toast({
         title: "Day Completed! 🎉",
@@ -201,7 +210,7 @@ const Dashboard = () => {
   }
 
   const progressPercentage = activeGoal ? 
-    Math.round((streak / activeGoal.duration_days) * 100) : 0;
+    Math.round((streak / activeGoal.total_days) * 100) : 0;
 
   return (
     <div className="min-h-screen bg-black text-white flex flex-col">
@@ -211,7 +220,7 @@ const Dashboard = () => {
             Your Journey
           </h1>
           <p className="text-lg opacity-90">
-            Day {streak + 1} of {activeGoal.duration_days}
+            Day {streak + 1} of {activeGoal.total_days}
           </p>
         </div>
 
@@ -244,7 +253,7 @@ const Dashboard = () => {
               <div className="text-xs font-bold uppercase">Day Streak</div>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-black text-green-500">{activeGoal.duration_days - streak}</div>
+              <div className="text-2xl font-black text-green-500">{activeGoal.total_days - streak}</div>
               <div className="text-xs font-bold uppercase">Days Left</div>
             </div>
           </div>
