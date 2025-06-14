@@ -7,156 +7,135 @@ import { Card } from "@/components/ui/Card";
 import { BottomNav } from "@/components/ui/BottomNav";
 import { useToast } from "@/hooks/use-toast";
 
-interface Goal {
-  id: string;
-  title: string;
-  description: string;
-  category: string;
-  progress: number;
-  daily_streak: number;
-  completed_days: number;
-  total_days: number;
-  deadline: string;
-}
-
-interface DailyCoaching {
-  id: string;
-  affirmation: string;
-  action_step: string;
-  completed: boolean;
-  mood_score: number | null;
-}
-
-interface GrowthPoints {
-  total_points: number;
-  current_level: number;
-  earned_points: number;
-}
-
 const Dashboard = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [currentTab, setCurrentTab] = useState("home");
   const [user, setUser] = useState<any>(null);
-  const [activeGoal, setActiveGoal] = useState<Goal | null>(null);
-  const [dailyCoaching, setDailyCoaching] = useState<DailyCoaching | null>(null);
-  const [growthPoints, setGrowthPoints] = useState<GrowthPoints | null>(null);
+  const [activeGoal, setActiveGoal] = useState<any>(null);
+  const [todayProgress, setTodayProgress] = useState<any>(null);
+  const [streak, setStreak] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    checkUserAndLoadData();
+    checkAuth();
   }, []);
 
-  const checkUserAndLoadData = async () => {
+  const checkAuth = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       navigate('/auth');
       return;
     }
-    
     setUser(user);
-    await Promise.all([
-      loadActiveGoal(user.id),
-      loadDailyCoaching(user.id),
-      loadGrowthPoints(user.id)
-    ]);
-    setLoading(false);
+    await fetchDashboardData(user.id);
   };
 
-  const loadActiveGoal = async (userId: string) => {
+  const fetchDashboardData = async (userId: string) => {
     try {
-      const { data, error } = await supabase
+      // Fetch active goal
+      const { data: goals } = await supabase
         .from('goals')
         .select('*')
         .eq('user_id', userId)
-        .eq('is_active', true)
-        .eq('archived', false)
-        .single();
+        .eq('status', 'active')
+        .order('created_at', { ascending: false })
+        .limit(1);
 
-      if (error && error.code !== 'PGRST116') throw error;
-      setActiveGoal(data);
+      if (goals && goals.length > 0) {
+        setActiveGoal(goals[0]);
+        
+        // Fetch today's progress
+        const today = new Date().toISOString().split('T')[0];
+        const { data: progress } = await supabase
+          .from('progress_logs')
+          .select('*')
+          .eq('goal_id', goals[0].id)
+          .eq('log_date', today)
+          .single();
+
+        setTodayProgress(progress);
+
+        // Calculate streak
+        await calculateStreak(goals[0].id);
+      }
     } catch (error: any) {
-      console.error('Error loading active goal:', error);
+      console.error('Error fetching dashboard data:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const loadDailyCoaching = async (userId: string) => {
-    if (!activeGoal) return;
-    
+  const calculateStreak = async (goalId: string) => {
     try {
-      const today = new Date().toISOString().split('T')[0];
-      const { data, error } = await supabase
-        .from('daily_coaching')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('goal_id', activeGoal.id)
-        .eq('date', today)
-        .single();
+      const { data: logs } = await supabase
+        .from('progress_logs')
+        .select('log_date, completed')
+        .eq('goal_id', goalId)
+        .eq('completed', true)
+        .order('log_date', { ascending: false });
 
-      if (error && error.code !== 'PGRST116') throw error;
-      setDailyCoaching(data);
-    } catch (error: any) {
-      console.error('Error loading daily coaching:', error);
-    }
-  };
-
-  const loadGrowthPoints = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('growth_points')
-        .select('*')
-        .eq('user_id', userId)
-        .single();
-
-      if (error && error.code !== 'PGRST116') throw error;
-      setGrowthPoints(data);
-    } catch (error: any) {
-      console.error('Error loading growth points:', error);
-    }
-  };
-
-  const handleCompleteDaily = async () => {
-    if (!dailyCoaching || !user || !activeGoal) return;
-
-    try {
-      await supabase
-        .from('daily_coaching')
-        .update({ completed: true })
-        .eq('id', dailyCoaching.id);
-
-      // Award points for daily completion
-      const pointsToAdd = 25; // Base daily points
-      if (growthPoints) {
-        await supabase
-          .from('growth_points')
-          .update({
-            total_points: growthPoints.total_points + pointsToAdd,
-            earned_points: growthPoints.earned_points + pointsToAdd
-          })
-          .eq('user_id', user.id);
+      if (!logs || logs.length === 0) {
+        setStreak(0);
+        return;
       }
 
-      // Update goal progress
-      const newCompletedDays = activeGoal.completed_days + 1;
-      const newStreak = activeGoal.daily_streak + 1;
-      const newProgress = (newCompletedDays / activeGoal.total_days) * 100;
+      let currentStreak = 0;
+      const today = new Date();
+      
+      for (let i = 0; i < logs.length; i++) {
+        const logDate = new Date(logs[i].log_date);
+        const daysDiff = Math.floor((today.getTime() - logDate.getTime()) / (1000 * 60 * 60 * 24));
+        
+        if (daysDiff === currentStreak) {
+          currentStreak++;
+        } else {
+          break;
+        }
+      }
+      
+      setStreak(currentStreak);
+    } catch (error) {
+      console.error('Error calculating streak:', error);
+    }
+  };
 
+  const markDayComplete = async () => {
+    if (!activeGoal || !user) return;
+
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      
+      const { error } = await supabase
+        .from('progress_logs')
+        .upsert([
+          {
+            goal_id: activeGoal.id,
+            user_id: user.id,
+            log_date: today,
+            completed: true,
+            notes: "Completed daily goal"
+          }
+        ]);
+
+      if (error) throw error;
+
+      // Award points
       await supabase
-        .from('goals')
-        .update({
-          completed_days: newCompletedDays,
-          daily_streak: newStreak,
-          progress: newProgress
+        .from('growth_points')
+        .update({ 
+          current_points: supabase.sql`current_points + 10`,
+          total_earned: supabase.sql`total_earned + 10`
         })
-        .eq('id', activeGoal.id);
+        .eq('user_id', user.id);
 
       toast({
-        title: "Daily Goal Completed! 🎉",
-        description: `+${pointsToAdd} points earned!`,
+        title: "Day Completed! 🎉",
+        description: "You earned 10 points! Keep the momentum going!",
       });
 
-      // Reload data
-      await checkUserAndLoadData();
+      // Refresh data
+      await fetchDashboardData(user.id);
     } catch (error: any) {
       toast({
         title: "Error",
@@ -166,9 +145,24 @@ const Dashboard = () => {
     }
   };
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    navigate('/');
+  const handleTabChange = (tab: string) => {
+    setCurrentTab(tab);
+    switch (tab) {
+      case "goal":
+        navigate('/goal-selection');
+        break;
+      case "progress":
+        navigate('/progress');
+        break;
+      case "rewards":
+        navigate('/rewards');
+        break;
+      case "profile":
+        navigate('/profile');
+        break;
+      default:
+        break;
+    }
   };
 
   if (loading) {
@@ -176,7 +170,7 @@ const Dashboard = () => {
       <div className="min-h-screen bg-black text-white flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin w-8 h-8 border-2 border-green-500 border-t-transparent rounded-full mx-auto mb-4"></div>
-          <p>Loading your dashboard...</p>
+          <p>Loading dashboard...</p>
         </div>
       </div>
     );
@@ -184,182 +178,121 @@ const Dashboard = () => {
 
   if (!activeGoal) {
     return (
-      <div className="min-h-screen bg-black text-white">
-        <div className="px-6 pt-8 pb-24 text-center">
-          <h1 className="text-3xl font-black uppercase tracking-tight mb-4">
-            Ready to Start?
-          </h1>
-          <p className="text-lg opacity-90 mb-8">
-            You haven't selected a goal yet. Let's find the perfect challenge for you.
-          </p>
-          <Button 
-            onClick={() => navigate('/goal-selection')}
-            size="large"
-          >
-            Choose Your Goal
-          </Button>
-          
-          <div className="mt-8">
+      <div className="min-h-screen bg-black text-white flex flex-col">
+        <div className="flex-1 flex flex-col justify-center items-center px-6 pb-20">
+          <div className="text-center max-w-md">
+            <h1 className="text-3xl font-black uppercase tracking-tight mb-6">
+              Ready to Start?
+            </h1>
+            <p className="text-lg mb-8 opacity-90">
+              You don't have an active goal yet. Let's create one!
+            </p>
             <Button 
-              onClick={handleSignOut}
-              variant="ghost"
-              className="text-white"
+              onClick={() => navigate('/goal-selection')}
+              className="w-full"
             >
-              Sign Out
+              Choose Your Goal
             </Button>
           </div>
         </div>
-        <BottomNav currentTab={currentTab} onTabChange={setCurrentTab} />
+        <BottomNav currentTab={currentTab} onTabChange={handleTabChange} />
       </div>
     );
   }
 
-  const daysLeft = Math.max(0, activeGoal.total_days - activeGoal.completed_days);
-  const progressPercentage = Math.round(activeGoal.progress);
+  const progressPercentage = activeGoal ? 
+    Math.round((streak / activeGoal.duration_days) * 100) : 0;
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      <div className="px-6 pt-8 pb-24">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-2xl font-black uppercase tracking-tight">
-              Your Journey
-            </h1>
-            <p className="text-green-500 font-bold">
-              Level {growthPoints?.current_level || 1} • {growthPoints?.total_points || 0} Points
-            </p>
-          </div>
-          <button
-            onClick={handleSignOut}
-            className="text-sm text-gray-400 hover:text-white"
-          >
-            Sign Out
-          </button>
+    <div className="min-h-screen bg-black text-white flex flex-col">
+      <div className="flex-1 px-6 pt-8 pb-24">
+        <div className="text-center mb-8">
+          <h1 className="text-2xl font-black uppercase tracking-tight mb-2">
+            Your Journey
+          </h1>
+          <p className="text-lg opacity-90">
+            Day {streak + 1} of {activeGoal.duration_days}
+          </p>
         </div>
 
         {/* Active Goal Card */}
-        <Card className="p-6 mb-6">
-          <div className="flex justify-between items-start mb-4">
-            <div>
-              <h2 className="text-xl font-black uppercase tracking-tight mb-2">
-                {activeGoal.title}
-              </h2>
-              <span className="bg-green-500 text-black px-2 py-1 text-xs font-bold rounded uppercase">
-                {activeGoal.category}
-              </span>
-            </div>
-            <div className="text-right">
-              <div className="text-2xl font-black text-green-500">
-                {daysLeft}
-              </div>
-              <div className="text-xs font-bold text-gray-500">
-                DAYS LEFT
-              </div>
-            </div>
-          </div>
-
+        <Card className="mb-6">
+          <h2 className="text-xl font-black uppercase tracking-tight mb-3">
+            {activeGoal.title}
+          </h2>
+          <p className="text-gray-600 mb-4">
+            {activeGoal.description}
+          </p>
+          
           {/* Progress Bar */}
           <div className="mb-4">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-sm font-bold">Progress</span>
-              <span className="text-sm font-bold">{progressPercentage}%</span>
+            <div className="flex justify-between text-sm font-bold mb-2">
+              <span>Progress</span>
+              <span>{progressPercentage}%</span>
             </div>
             <div className="w-full bg-gray-300 h-3 border-2 border-black">
               <div 
                 className="bg-green-500 h-full transition-all duration-300"
                 style={{ width: `${progressPercentage}%` }}
-              />
+              ></div>
             </div>
           </div>
 
-          {/* Stats */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="flex justify-between items-center">
             <div className="text-center">
-              <div className="text-2xl font-black text-green-500">
-                {activeGoal.daily_streak}
-              </div>
-              <div className="text-xs font-bold text-gray-500">
-                DAY STREAK
-              </div>
+              <div className="text-2xl font-black text-green-500">{streak}</div>
+              <div className="text-xs font-bold uppercase">Day Streak</div>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-black text-green-500">
-                {activeGoal.completed_days}/{activeGoal.total_days}
-              </div>
-              <div className="text-xs font-bold text-gray-500">
-                DAYS COMPLETED
-              </div>
+              <div className="text-2xl font-black text-green-500">{activeGoal.duration_days - streak}</div>
+              <div className="text-xs font-bold uppercase">Days Left</div>
             </div>
           </div>
         </Card>
 
-        {/* Daily Coaching */}
-        {dailyCoaching && (
-          <Card className="p-6 mb-6">
-            <h3 className="text-lg font-black uppercase tracking-tight mb-4">
-              Today's Coaching
-            </h3>
-            
-            <div className="mb-4">
-              <p className="text-sm font-bold text-green-500 mb-2">AFFIRMATION:</p>
-              <p className="text-sm leading-relaxed">
-                {dailyCoaching.affirmation}
-              </p>
+        {/* Daily Action */}
+        <Card className="mb-6">
+          <h3 className="text-lg font-black uppercase tracking-tight mb-3">
+            Today's Focus
+          </h3>
+          <p className="text-gray-600 mb-4">
+            "Every small step forward is progress. Stay committed to your vision."
+          </p>
+          
+          {!todayProgress?.completed ? (
+            <Button 
+              onClick={markDayComplete}
+              className="w-full"
+            >
+              Mark Today Complete
+            </Button>
+          ) : (
+            <div className="text-center py-3">
+              <span className="text-green-500 font-bold">✓ Today Completed!</span>
             </div>
-
-            <div className="mb-6">
-              <p className="text-sm font-bold text-green-500 mb-2">ACTION STEP:</p>
-              <p className="text-sm leading-relaxed">
-                {dailyCoaching.action_step}
-              </p>
-            </div>
-
-            {!dailyCoaching.completed ? (
-              <Button
-                onClick={handleCompleteDaily}
-                className="w-full"
-              >
-                Mark Today Complete
-              </Button>
-            ) : (
-              <div className="text-center py-4">
-                <div className="text-2xl mb-2">✅</div>
-                <p className="text-sm font-bold text-green-500">
-                  TODAY'S GOAL COMPLETED!
-                </p>
-              </div>
-            )}
-          </Card>
-        )}
+          )}
+        </Card>
 
         {/* Quick Actions */}
         <div className="grid grid-cols-2 gap-4">
-          <Button
+          <Button 
             onClick={() => navigate('/progress')}
             variant="secondary"
-            className="py-6"
+            className="text-sm"
           >
-            <div className="text-center">
-              <div className="text-2xl mb-2">📊</div>
-              <div className="text-sm font-black">VIEW PROGRESS</div>
-            </div>
+            View Progress
           </Button>
-          
-          <Button
+          <Button 
             onClick={() => navigate('/rewards')}
             variant="secondary"
-            className="py-6"
+            className="text-sm"
           >
-            <div className="text-center">
-              <div className="text-2xl mb-2">🏆</div>
-              <div className="text-sm font-black">EARN REWARDS</div>
-            </div>
+            Earn Rewards
           </Button>
         </div>
       </div>
 
-      <BottomNav currentTab={currentTab} onTabChange={setCurrentTab} />
+      <BottomNav currentTab={currentTab} onTabChange={handleTabChange} />
     </div>
   );
 };

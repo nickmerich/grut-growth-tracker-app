@@ -7,147 +7,125 @@ import { Card } from "@/components/ui/Card";
 import { BottomNav } from "@/components/ui/BottomNav";
 import { useToast } from "@/hooks/use-toast";
 
-interface Reward {
-  id: string;
-  title: string;
-  description: string;
-  points_cost: number;
-  category: string;
-  image_url: string | null;
-  available: boolean;
-}
-
-interface GrowthPoints {
-  total_points: number;
-  spent_points: number;
-  current_level: number;
-}
-
 const Rewards = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [currentTab, setCurrentTab] = useState("rewards");
   const [user, setUser] = useState<any>(null);
-  const [rewards, setRewards] = useState<Reward[]>([]);
-  const [growthPoints, setGrowthPoints] = useState<GrowthPoints | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState("all");
+  const [userPoints, setUserPoints] = useState<any>(null);
+  const [rewards, setRewards] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const categories = [
-    { id: "all", label: "ALL", icon: "🎁" },
-    { id: "gift-cards", label: "GIFT CARDS", icon: "💳" },
-    { id: "experiences", label: "EXPERIENCES", icon: "🎢" },
-    { id: "products", label: "PRODUCTS", icon: "📦" },
-    { id: "digital", label: "DIGITAL", icon: "💻" },
-  ];
-
   useEffect(() => {
-    checkUserAndLoadData();
+    checkAuth();
   }, []);
 
-  const checkUserAndLoadData = async () => {
+  const checkAuth = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       navigate('/auth');
       return;
     }
-    
     setUser(user);
-    await Promise.all([
-      loadRewards(),
-      loadGrowthPoints(user.id)
-    ]);
-    setLoading(false);
+    await fetchRewardsData(user.id);
   };
 
-  const loadRewards = async () => {
+  const fetchRewardsData = async (userId: string) => {
     try {
-      const { data, error } = await supabase
-        .from('rewards')
-        .select('*')
-        .eq('available', true)
-        .order('points_cost', { ascending: true });
-
-      if (error) throw error;
-      setRewards(data || []);
-    } catch (error: any) {
-      console.error('Error loading rewards:', error);
-    }
-  };
-
-  const loadGrowthPoints = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
+      // Fetch user points
+      const { data: points } = await supabase
         .from('growth_points')
         .select('*')
         .eq('user_id', userId)
         .single();
 
-      if (error && error.code !== 'PGRST116') throw error;
-      setGrowthPoints(data);
+      setUserPoints(points);
+
+      // Fetch available rewards
+      const { data: rewardsData } = await supabase
+        .from('rewards')
+        .select('*')
+        .order('points_required', { ascending: true });
+
+      setRewards(rewardsData || []);
     } catch (error: any) {
-      console.error('Error loading growth points:', error);
+      console.error('Error fetching rewards data:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleRedeemReward = async (reward: Reward) => {
-    if (!user || !growthPoints) return;
+  const redeemReward = async (reward: any) => {
+    if (!user || !userPoints) return;
 
-    const availablePoints = growthPoints.total_points - growthPoints.spent_points;
-    
-    if (availablePoints < reward.points_cost) {
+    if (userPoints.current_points < reward.points_required) {
       toast({
         title: "Insufficient Points",
-        description: `You need ${reward.points_cost - availablePoints} more points to redeem this reward.`,
+        description: `You need ${reward.points_required - userPoints.current_points} more points to redeem this reward.`,
         variant: "destructive",
       });
       return;
     }
 
     try {
-      // Create redemption record
-      const { error: redemptionError } = await supabase
-        .from('redemptions')
-        .insert({
-          user_id: user.id,
-          reward_id: reward.id,
-          points_spent: reward.points_cost,
-          status: 'pending'
-        });
-
-      if (redemptionError) throw redemptionError;
-
-      // Update spent points
+      // Deduct points
       const { error: pointsError } = await supabase
         .from('growth_points')
-        .update({
-          spent_points: growthPoints.spent_points + reward.points_cost
+        .update({ 
+          current_points: userPoints.current_points - reward.points_required 
         })
         .eq('user_id', user.id);
 
       if (pointsError) throw pointsError;
 
+      // Log redemption
+      const { error: redemptionError } = await supabase
+        .from('reward_redemptions')
+        .insert([
+          {
+            user_id: user.id,
+            reward_id: reward.id,
+            points_spent: reward.points_required
+          }
+        ]);
+
+      if (redemptionError) throw redemptionError;
+
       toast({
         title: "Reward Redeemed! 🎉",
-        description: `${reward.title} has been added to your account. Check your email for details.`,
+        description: `You've successfully redeemed ${reward.title}!`,
       });
 
-      // Reload growth points
-      await loadGrowthPoints(user.id);
+      // Refresh data
+      await fetchRewardsData(user.id);
     } catch (error: any) {
       toast({
-        title: "Redemption Failed",
+        title: "Error",
         description: error.message,
         variant: "destructive",
       });
     }
   };
 
-  const filteredRewards = selectedCategory === "all" 
-    ? rewards 
-    : rewards.filter(reward => reward.category === selectedCategory);
-
-  const availablePoints = growthPoints ? growthPoints.total_points - growthPoints.spent_points : 0;
+  const handleTabChange = (tab: string) => {
+    setCurrentTab(tab);
+    switch (tab) {
+      case "home":
+        navigate('/dashboard');
+        break;
+      case "goal":
+        navigate('/goal-selection');
+        break;
+      case "progress":
+        navigate('/progress');
+        break;
+      case "profile":
+        navigate('/profile');
+        break;
+      default:
+        break;
+    }
+  };
 
   if (loading) {
     return (
@@ -161,119 +139,81 @@ const Rewards = () => {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      <div className="px-6 pt-8 pb-24">
-        {/* Header */}
+    <div className="min-h-screen bg-black text-white flex flex-col">
+      <div className="flex-1 px-6 pt-8 pb-24">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-black uppercase tracking-tight mb-2">
-            Rewards Store
+          <h1 className="text-3xl font-black uppercase tracking-tight mb-4">
+            Rewards
           </h1>
           <p className="text-lg opacity-90">
-            Exchange your GRYT points for real rewards
+            Redeem your hard-earned points
           </p>
         </div>
 
-        {/* Points Display */}
-        <Card className="p-6 mb-6">
+        {/* Points Balance */}
+        <Card className="mb-6">
           <div className="text-center">
+            <h2 className="text-lg font-black uppercase tracking-tight mb-2">
+              Your Points
+            </h2>
             <div className="text-4xl font-black text-green-500 mb-2">
-              {availablePoints}
+              {userPoints?.current_points || 0}
             </div>
-            <div className="text-sm font-bold text-gray-500 mb-4">
-              AVAILABLE POINTS
-            </div>
-            
-            <div className="grid grid-cols-3 gap-4 text-center">
-              <div>
-                <div className="text-lg font-black text-green-500">
-                  {growthPoints?.total_points || 0}
-                </div>
-                <div className="text-xs font-bold text-gray-500">
-                  TOTAL EARNED
-                </div>
-              </div>
-              <div>
-                <div className="text-lg font-black text-green-500">
-                  {growthPoints?.spent_points || 0}
-                </div>
-                <div className="text-xs font-bold text-gray-500">
-                  SPENT
-                </div>
-              </div>
-              <div>
-                <div className="text-lg font-black text-green-500">
-                  {growthPoints?.current_level || 1}
-                </div>
-                <div className="text-xs font-bold text-gray-500">
-                  LEVEL
-                </div>
-              </div>
+            <div className="text-sm text-gray-600">
+              Total Earned: {userPoints?.total_earned || 0}
             </div>
           </div>
         </Card>
 
-        {/* Category Filter */}
-        <div className="flex overflow-x-auto gap-2 mb-8 pb-2">
-          {categories.map((category) => (
-            <button
-              key={category.id}
-              onClick={() => setSelectedCategory(category.id)}
-              className={`
-                flex-shrink-0 px-4 py-2 rounded-full border-2 border-white text-sm font-bold
-                ${selectedCategory === category.id 
-                  ? 'bg-green-500 text-black' 
-                  : 'bg-transparent text-white hover:bg-white hover:text-black'
-                }
-                transition-all duration-150
-              `}
-            >
-              <span className="mr-2">{category.icon}</span>
-              {category.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Rewards Grid */}
+        {/* Available Rewards */}
         <div className="space-y-4">
-          {filteredRewards.length === 0 ? (
-            <Card className="p-6 text-center">
-              <p className="text-gray-400">
-                No rewards available in this category yet.
-              </p>
+          <h3 className="text-lg font-black uppercase tracking-tight">
+            Available Rewards
+          </h3>
+          
+          {rewards.length === 0 ? (
+            <Card>
+              <div className="text-center py-8">
+                <p className="text-gray-400">
+                  No rewards available at the moment. Check back soon!
+                </p>
+              </div>
             </Card>
           ) : (
-            filteredRewards.map((reward) => {
-              const canAfford = availablePoints >= reward.points_cost;
+            rewards.map((reward) => {
+              const canAfford = userPoints && userPoints.current_points >= reward.points_required;
               
               return (
-                <Card key={reward.id} className="p-6">
+                <Card key={reward.id}>
                   <div className="flex justify-between items-start mb-3">
                     <div className="flex-1">
-                      <h3 className="text-lg font-black uppercase tracking-tight mb-2">
+                      <h4 className="text-lg font-black uppercase tracking-tight">
                         {reward.title}
-                      </h3>
-                      <p className="text-sm text-gray-600 mb-3 leading-relaxed">
+                      </h4>
+                      <p className="text-gray-600 text-sm mb-2">
                         {reward.description}
                       </p>
-                      <div className="flex items-center gap-3">
-                        <span className="bg-green-500 text-black px-3 py-1 text-sm font-bold rounded">
-                          {reward.points_cost} Points
+                      <div className="flex items-center gap-2">
+                        <span className="text-green-500 font-bold">
+                          {reward.points_required} Points
                         </span>
-                        <span className="text-xs font-bold text-gray-500 uppercase">
-                          {reward.category.replace('-', ' ')}
-                        </span>
+                        {reward.category && (
+                          <span className="text-xs bg-gray-200 text-black px-2 py-1 rounded font-bold">
+                            {reward.category.toUpperCase()}
+                          </span>
+                        )}
                       </div>
                     </div>
+                    
+                    <Button
+                      onClick={() => redeemReward(reward)}
+                      disabled={!canAfford}
+                      variant={canAfford ? "primary" : "ghost"}
+                      className="ml-4"
+                    >
+                      {canAfford ? "Redeem" : "Need More"}
+                    </Button>
                   </div>
-                  
-                  <Button
-                    onClick={() => handleRedeemReward(reward)}
-                    disabled={!canAfford}
-                    className={`w-full ${!canAfford ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    variant={canAfford ? "primary" : "secondary"}
-                  >
-                    {canAfford ? "Redeem Now" : "Need More Points"}
-                  </Button>
                 </Card>
               );
             })
@@ -281,33 +221,28 @@ const Rewards = () => {
         </div>
 
         {/* How to Earn Points */}
-        <Card className="p-6 mt-8">
-          <h3 className="text-lg font-black uppercase tracking-tight mb-4">
+        <Card className="mt-8">
+          <h3 className="text-lg font-black uppercase tracking-tight mb-3">
             How to Earn Points
           </h3>
-          
-          <div className="space-y-3 text-sm">
-            <div className="flex justify-between items-center">
-              <span>Daily goal completion</span>
-              <span className="font-bold text-green-500">+25 points</span>
-            </div>
-            <div className="flex justify-between items-center">
+          <ul className="space-y-2 text-sm">
+            <li className="flex justify-between">
+              <span>Complete daily goal</span>
+              <span className="text-green-500 font-bold">+10 points</span>
+            </li>
+            <li className="flex justify-between">
               <span>Weekly streak bonus</span>
-              <span className="font-bold text-green-500">+50 points</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span>Monthly challenge</span>
-              <span className="font-bold text-green-500">+100 points</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span>Goal completion</span>
-              <span className="font-bold text-green-500">+200 points</span>
-            </div>
-          </div>
+              <span className="text-green-500 font-bold">+50 points</span>
+            </li>
+            <li className="flex justify-between">
+              <span>Complete full goal</span>
+              <span className="text-green-500 font-bold">+500 points</span>
+            </li>
+          </ul>
         </Card>
       </div>
 
-      <BottomNav currentTab={currentTab} onTabChange={setCurrentTab} />
+      <BottomNav currentTab={currentTab} onTabChange={handleTabChange} />
     </div>
   );
 };
