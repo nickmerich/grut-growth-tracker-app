@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -258,7 +257,7 @@ const DailyCheckin = () => {
               <div className="grid grid-cols-2 gap-4">
                 <Button
                   onClick={() => setCompleted(true)}
-                  variant={completed ? "default" : "secondary"}
+                  variant={completed ? "primary" : "secondary"}
                   className="h-20"
                 >
                   <div className="text-center">
@@ -268,7 +267,7 @@ const DailyCheckin = () => {
                 </Button>
                 <Button
                   onClick={() => setCompleted(false)}
-                  variant={!completed ? "default" : "secondary"}
+                  variant={!completed ? "primary" : "secondary"}
                   className="h-20"
                 >
                   <div className="text-center">
